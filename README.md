@@ -6,6 +6,10 @@ An asynchronous Rust bridge between a SOFAR inverter (Modbus RTU framing over TC
 
 Install Rust, then build with `cargo build --release` and start with `cargo run --release -- config.yaml`. The YAML file is passed as the optional first argument. Set broker credentials with `MQTT_USERNAME` and `MQTT_PASSWORD` to override values in the file.
 
+## Releases
+
+The GitHub Actions workflow checks formatting and builds on pushes and pull requests. To publish a release, push a version tag such as `v0.1.0`; the workflow attaches a Linux x86-64 GNU binary archive, `config.example.yaml`, the README, and a SHA-256 checksum to the GitHub release.
+
 ## Behavior
 
 ON and OFF commands are persisted to `state_file` before an inverter write is attempted. The bridge retries the desired command on its polling interval and reports that desired command as MQTT state, so inverter downtime does not make the Home Assistant switch unavailable. When no state has been saved yet, the bridge seeds desired state from a recognized inverter command the first time it can read the inverter. The retained MQTT availability topic reports bridge-to-broker connectivity only. Home Assistant exposes bridge and inverter connectivity as diagnostic binary sensors; inverter loss does not make the bridge or its switch unavailable.

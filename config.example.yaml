@@ -1,0 +1,21 @@
+inverter:
+  host: "INVERTER_IP_ADDRESS"
+  port: 8899
+  slave_id: 1
+  poll_interval: 5
+  timeout: 3
+
+  active_power:
+    address: 12
+    function: 3
+    scale: 10
+    enabled: true
+
+mqtt:
+  host: "MQTT_BROKER_IP_ADDRESS"
+  port: 1883
+  # Optional credentials can be set with MQTT_USERNAME and MQTT_PASSWORD.
+  topic_prefix: "sofar"
+  homeassistant_prefix: "homeassistant"
+
+state_file: "sofar-state.json"

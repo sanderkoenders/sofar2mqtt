@@ -1,0 +1,50 @@
+name: Build and release
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Package Linux x86-64 release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist/sofar-mqtt
+          cp target/release/sofar-mqtt dist/sofar-mqtt/
+          cp README.md config.example.yaml dist/sofar-mqtt/
+          tar -C dist -czf "dist/sofar-mqtt-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" sofar-mqtt
+          cd dist
+          sha256sum "sofar-mqtt-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" > "sofar-mqtt-${VERSION}-x86_64-unknown-linux-gnu.tar.gz.sha256"
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/sofar-mqtt-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+            dist/sofar-mqtt-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz.sha256
