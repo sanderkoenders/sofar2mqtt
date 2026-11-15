@@ -1,0 +1,4 @@
+/target/
+/sofar-state.json
+/sofar-state.json.tmp
+config.yaml
