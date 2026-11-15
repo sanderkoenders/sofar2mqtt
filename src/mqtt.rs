@@ -18,12 +18,13 @@ pub struct Topics {
 impl Topics {
     pub fn new(prefix: &str, discovery_prefix: &str) -> Self {
         let prefix = prefix.trim_matches('/');
+        let inverter_prefix = format!("{prefix}/inverter");
         Self {
             availability: format!("{prefix}/availability"),
-            inverter_availability: format!("{prefix}/inverter/availability"),
-            command: format!("{prefix}/inverter/set"),
-            desired: format!("{prefix}/remote_command"),
-            power: format!("{prefix}/active_power"),
+            inverter_availability: format!("{inverter_prefix}/availability"),
+            command: format!("{inverter_prefix}/set"),
+            desired: format!("{inverter_prefix}/remote_command"),
+            power: format!("{inverter_prefix}/active_power"),
             discovery_prefix: discovery_prefix.trim_matches('/').to_owned(),
         }
     }
