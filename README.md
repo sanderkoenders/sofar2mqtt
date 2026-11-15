@@ -8,7 +8,7 @@ Install Rust, then build with `cargo build --release` and start with `cargo run 
 
 ## Behavior
 
-ON and OFF commands are persisted to `state_file` before an inverter write is attempted. The bridge retries the desired command on its polling interval and reports that desired command as MQTT state, so inverter downtime does not make the Home Assistant switch unavailable. When no state has been saved yet, the bridge seeds desired state from a recognized inverter command the first time it can read the inverter. The retained MQTT availability topic reports bridge-to-broker connectivity only.
+ON and OFF commands are persisted to `state_file` before an inverter write is attempted. The bridge retries the desired command on its polling interval and reports that desired command as MQTT state, so inverter downtime does not make the Home Assistant switch unavailable. When no state has been saved yet, the bridge seeds desired state from a recognized inverter command the first time it can read the inverter. The retained MQTT availability topic reports bridge-to-broker connectivity only. Home Assistant exposes bridge and inverter connectivity as diagnostic binary sensors; inverter loss does not make the bridge or its switch unavailable.
 
 The MQTT `topic_prefix` controls bridge state and command topics. `homeassistant_prefix` controls Home Assistant discovery topics and defaults to `homeassistant`. The older `discovery_prefix` YAML key remains accepted as an alias.
 

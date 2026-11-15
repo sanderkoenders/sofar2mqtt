@@ -8,6 +8,7 @@ use crate::{config::MqttConfig, inverter::InverterCommand};
 #[derive(Clone)]
 pub struct Topics {
     pub availability: String,
+    pub inverter_availability: String,
     pub command: String,
     pub desired: String,
     pub power: String,
@@ -19,6 +20,7 @@ impl Topics {
         let prefix = prefix.trim_matches('/');
         Self {
             availability: format!("{prefix}/availability"),
+            inverter_availability: format!("{prefix}/inverter/availability"),
             command: format!("{prefix}/inverter/set"),
             desired: format!("{prefix}/remote_command"),
             power: format!("{prefix}/active_power"),
@@ -70,6 +72,19 @@ impl MqttBridge {
             .await?;
         Ok(())
     }
+
+    pub async fn publish_inverter_availability(&self, online: bool) -> Result<()> {
+        let state = if online { "online" } else { "offline" };
+        self.client
+            .publish(
+                &self.topics.inverter_availability,
+                QoS::AtLeastOnce,
+                true,
+                state,
+            )
+            .await?;
+        Ok(())
+    }
     pub async fn publish_desired(&self, command: Option<InverterCommand>) -> Result<()> {
         if let Some(command) = command {
             self.client
@@ -115,7 +130,12 @@ impl MqttBridge {
             (
                 "binary_sensor",
                 "online",
-                json!({"name":"Bridge Online","unique_id":"sofar_online","state_topic":self.topics.availability,"payload_on":"online","payload_off":"offline","device_class":"connectivity"}),
+                json!({"name":"Bridge Online","unique_id":"sofar_online","state_topic":self.topics.availability,"payload_on":"online","payload_off":"offline","device_class":"connectivity","entity_category":"diagnostic"}),
+            ),
+            (
+                "binary_sensor",
+                "inverter_online",
+                json!({"name":"Inverter Online","unique_id":"sofar_inverter_online","state_topic":self.topics.inverter_availability,"payload_on":"online","payload_off":"offline","device_class":"connectivity","entity_category":"diagnostic"}),
             ),
         ];
         for (component, entity, mut config) in entities {

@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
     let mut desired = DesiredState::load(config.state_file.as_deref())?;
     let inverter = Inverter::new(config.inverter.clone());
     let mut mqtt = MqttBridge::new(&config.mqtt, &topics)?;
+    let mut inverter_online = None;
     let mut poll = time::interval(Duration::from_secs(config.inverter.poll_interval.max(1)));
     poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -47,6 +48,9 @@ async fn main() -> Result<()> {
                     mqtt.publish_availability("online").await?;
                     mqtt.publish_discovery().await?;
                     mqtt.publish_desired(desired.command()).await?;
+                    if let Some(online) = inverter_online {
+                        mqtt.publish_inverter_availability(online).await?;
+                    }
                 }
                 Ok(Event::Incoming(Packet::Publish(message))) if message.topic == topics.command => {
                     if message.retain && desired.command().is_some() {
@@ -75,27 +79,37 @@ async fn main() -> Result<()> {
                 }
             },
             _ = poll.tick() => {
+                let mut online = false;
                 if let Some(command) = desired.command() {
-                    if let Err(err) = inverter.apply(command).await {
-                        warn!(?err, ?command, "Inverter unavailable; desired state remains queued");
+                    match inverter.apply(command).await {
+                        Ok(()) => online = true,
+                        Err(err) => warn!(?err, ?command, "Could not apply desired state to inverter"),
                     }
                 } else {
                     match inverter.observed_command().await {
                         Ok(Some(command)) => {
+                            online = true;
                             if let Err(err) = desired.set(command, config.state_file.as_deref()) {
                                 error!(?err, "Could not persist inverter's initial state");
                             } else {
                                 mqtt.publish_desired(Some(command)).await?;
                             }
                         }
-                        Ok(None) => {},
+                        Ok(None) => online = true,
                         Err(err) => warn!(?err, "Could not read inverter state yet"),
                     }
                 }
                 match inverter.read_active_power().await {
-                    Ok(Some(power)) => mqtt.publish_power(power).await?,
+                    Ok(Some(power)) => {
+                        online = true;
+                        mqtt.publish_power(power).await?;
+                    }
                     Ok(None) => {},
                     Err(err) => warn!(?err, "Could not read inverter power"),
+                }
+                if inverter_online != Some(online) {
+                    mqtt.publish_inverter_availability(online).await?;
+                    inverter_online = Some(online);
                 }
             }
         }
