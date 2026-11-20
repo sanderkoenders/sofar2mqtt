@@ -234,3 +234,34 @@ fn crc16(data: &[u8]) -> u16 {
     }
     crc
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_commands_case_insensitively_and_trims_whitespace() {
+        assert_eq!(InverterCommand::parse(b"ON").unwrap(), InverterCommand::On);
+        assert_eq!(
+            InverterCommand::parse(b" off \n").unwrap(),
+            InverterCommand::Off
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_command_payloads() {
+        assert!(InverterCommand::parse(b"START").is_err());
+        assert!(InverterCommand::parse(&[0xFF]).is_err());
+    }
+
+    #[test]
+    fn maps_commands_to_register_values() {
+        assert_eq!(InverterCommand::On.register(), 0x0055);
+        assert_eq!(InverterCommand::Off.register(), 0x0066);
+    }
+
+    #[test]
+    fn calculates_modbus_crc_for_standard_check_value() {
+        assert_eq!(crc16(b"123456789"), 0x4B37);
+    }
+}

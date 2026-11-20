@@ -54,3 +54,56 @@ impl DesiredState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempStateFile(PathBuf);
+
+    impl TempStateFile {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is after Unix epoch")
+                .as_nanos();
+            Self(std::env::temp_dir().join(format!(
+                "sofar2mqtt-state-{}-{unique}.json",
+                std::process::id()
+            )))
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempStateFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+            let _ = fs::remove_file(self.0.with_extension("json.tmp"));
+        }
+    }
+
+    #[test]
+    fn saves_and_reloads_desired_command() {
+        let file = TempStateFile::new();
+        let mut state = DesiredState::load(Some(file.path())).unwrap();
+
+        state.set(InverterCommand::Off, Some(file.path())).unwrap();
+
+        let loaded = DesiredState::load(Some(file.path())).unwrap();
+        assert_eq!(loaded.command(), Some(InverterCommand::Off));
+    }
+
+    #[test]
+    fn updates_desired_command_without_persistence() {
+        let mut state = DesiredState::default();
+
+        state.set(InverterCommand::On, None).unwrap();
+
+        assert_eq!(state.command(), Some(InverterCommand::On));
+    }
+}

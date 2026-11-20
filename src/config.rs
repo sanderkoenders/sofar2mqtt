@@ -131,3 +131,30 @@ fn default_topic_prefix() -> String {
 fn default_ha_prefix() -> String {
     "homeassistant".into()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_values_use_configuration_defaults() {
+        let config: Config =
+            serde_yaml::from_str("inverter:\n  host: inverter\nmqtt:\n  host: broker\n").unwrap();
+
+        assert_eq!(config.inverter.port, 8899);
+        assert_eq!(config.inverter.slave_id, 1);
+        assert_eq!(config.inverter.poll_interval, 5);
+        assert_eq!(config.inverter.timeout, 3);
+        assert_eq!(config.inverter.active_power.address, 12);
+        assert_eq!(config.inverter.active_power.function, 3);
+        assert_eq!(config.inverter.active_power.scale, 10.0);
+        assert!(config.inverter.active_power.enabled);
+        assert_eq!(config.mqtt.port, 1883);
+        assert_eq!(config.mqtt.topic_prefix, "sofar");
+        assert_eq!(config.mqtt.homeassistant_prefix, "homeassistant");
+        assert_eq!(
+            config.state_file.as_deref(),
+            Some(std::path::Path::new("sofar-state.json"))
+        );
+    }
+}
