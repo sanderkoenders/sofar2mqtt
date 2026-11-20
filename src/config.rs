@@ -72,26 +72,32 @@ impl Config {
             fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut config: Self =
             serde_yaml::from_str(&contents).context("parsing configuration YAML")?;
+        config.apply_environment_overrides();
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn apply_environment_overrides(&mut self) {
         if let Ok(username) = std::env::var("MQTT_USERNAME") {
-            config.mqtt.username = Some(username);
+            self.mqtt.username = Some(username);
         }
         if let Ok(password) = std::env::var("MQTT_PASSWORD") {
-            config.mqtt.password = Some(password);
+            self.mqtt.password = Some(password);
         }
+    }
+
+    fn validate(&self) -> Result<()> {
+        anyhow::ensure!(!self.inverter.host.is_empty(), "inverter.host must be set");
+        anyhow::ensure!(!self.mqtt.host.is_empty(), "mqtt.host must be set");
         anyhow::ensure!(
-            !config.inverter.host.is_empty(),
-            "inverter.host must be set"
-        );
-        anyhow::ensure!(!config.mqtt.host.is_empty(), "mqtt.host must be set");
-        anyhow::ensure!(
-            config.mqtt.topic_prefix.trim_matches('/').len() > 0,
+            !self.mqtt.topic_prefix.trim_matches('/').is_empty(),
             "mqtt.topic_prefix must not be empty"
         );
         anyhow::ensure!(
-            config.mqtt.homeassistant_prefix.trim_matches('/').len() > 0,
+            !self.mqtt.homeassistant_prefix.trim_matches('/').is_empty(),
             "mqtt.homeassistant_prefix must not be empty"
         );
-        Ok(config)
+        Ok(())
     }
 }
 
@@ -141,6 +147,7 @@ mod tests {
         let config: Config =
             serde_yaml::from_str("inverter:\n  host: inverter\nmqtt:\n  host: broker\n").unwrap();
 
+        config.validate().unwrap();
         assert_eq!(config.inverter.port, 8899);
         assert_eq!(config.inverter.slave_id, 1);
         assert_eq!(config.inverter.poll_interval, 5);
@@ -156,5 +163,15 @@ mod tests {
             config.state_file.as_deref(),
             Some(std::path::Path::new("sofar-state.json"))
         );
+    }
+
+    #[test]
+    fn rejects_topic_prefixes_that_contain_only_slashes() {
+        let config: Config = serde_yaml::from_str(
+            "inverter:\n  host: inverter\nmqtt:\n  host: broker\n  topic_prefix: '///'\n",
+        )
+        .unwrap();
+
+        assert!(config.validate().is_err());
     }
 }

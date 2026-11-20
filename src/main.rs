@@ -11,7 +11,7 @@ use tracing::{error, info, warn};
 
 use config::Config;
 use inverter::{Inverter, InverterCommand};
-use mqtt::{MqttBridge, Topics};
+use mqtt::{Availability, AvailabilityState, MqttBridge, Topics};
 use state::DesiredState;
 
 #[tokio::main]
@@ -37,8 +37,7 @@ struct Bridge {
     desired: DesiredState,
     inverter: Inverter,
     mqtt: MqttBridge,
-    inverter_online: Option<bool>,
-    state_file: Option<PathBuf>,
+    inverter_online: Option<AvailabilityState>,
 }
 
 impl Bridge {
@@ -46,14 +45,13 @@ impl Bridge {
         let topics = Topics::new(&config.mqtt.topic_prefix, &config.mqtt.homeassistant_prefix);
         let desired = DesiredState::load(config.state_file.as_deref())?;
         let inverter = Inverter::new(config.inverter.clone());
-        let mqtt = MqttBridge::new(&config.mqtt, &topics)?;
+        let mqtt = MqttBridge::new(&config.mqtt, &topics);
         Ok(Self {
             topics,
             desired,
             inverter,
             mqtt,
             inverter_online: None,
-            state_file: config.state_file,
         })
     }
 
@@ -66,16 +64,20 @@ impl Bridge {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     info!("Shutdown requested");
-                    self.mqtt.publish_availability("offline").await?;
+                    self.mqtt
+                        .publish_availability(Availability::Bridge(AvailabilityState::Offline))
+                        .await?;
                     break;
                 }
-                event = self.mqtt.eventloop.poll() => {
+                event = self.mqtt.poll_event() => {
                     self.handle_mqtt_event(event).await?;
                 }
                 _ = poll.tick() => {
                     let online = self.poll_inverter().await?;
                     if self.inverter_online != Some(online) {
-                        self.mqtt.publish_inverter_availability(online).await?;
+                        self.mqtt
+                            .publish_availability(Availability::Inverter(online))
+                            .await?;
                         self.inverter_online = Some(online);
                     }
                 }
@@ -92,11 +94,17 @@ impl Bridge {
             Ok(Event::Incoming(Packet::ConnAck(_))) => {
                 info!("Connected to MQTT broker");
                 self.mqtt.subscribe_commands().await?;
-                self.mqtt.publish_availability("online").await?;
+                self.mqtt
+                    .publish_availability(Availability::Bridge(AvailabilityState::Online))
+                    .await?;
                 self.mqtt.publish_discovery().await?;
-                self.mqtt.publish_desired(self.desired.command()).await?;
+                if let Some(command) = self.desired.command() {
+                    self.mqtt.publish_desired(command).await?;
+                }
                 if let Some(online) = self.inverter_online {
-                    self.mqtt.publish_inverter_availability(online).await?;
+                    self.mqtt
+                        .publish_availability(Availability::Inverter(online))
+                        .await?;
                 }
             }
             Ok(Event::Incoming(Packet::Publish(message)))
@@ -105,7 +113,7 @@ impl Bridge {
                 warn!("Ignoring retained broker command because a persisted desired state exists");
             }
             Ok(Event::Incoming(Packet::Publish(message)))
-                if message.topic == self.topics.command =>
+                if self.topics.is_command_topic(&message.topic) =>
             {
                 self.handle_command(&message.payload).await?;
             }
@@ -119,20 +127,20 @@ impl Bridge {
     }
 
     fn should_ignore_retained_command(&self, topic: &str, retained: bool) -> bool {
-        retained && topic == self.topics.command && self.desired.command().is_some()
+        retained && self.topics.is_command_topic(topic) && self.desired.command().is_some()
     }
 
     async fn handle_command(&mut self, payload: &[u8]) -> Result<()> {
         match InverterCommand::parse(payload) {
             Ok(command) => {
-                if let Err(err) = self.desired.set(command, self.state_file.as_deref()) {
+                if let Err(err) = self.desired.set(command) {
                     error!(
                         ?err,
                         "Could not persist desired state; command not accepted"
                     );
                     return Ok(());
                 }
-                self.mqtt.publish_desired(Some(command)).await?;
+                self.mqtt.publish_desired(command).await?;
                 info!(?command, "Stored desired inverter state");
                 if let Err(err) = self.inverter.apply(command).await {
                     warn!(?err, "Inverter unavailable; desired state will be retried");
@@ -143,35 +151,35 @@ impl Bridge {
         Ok(())
     }
 
-    async fn poll_inverter(&mut self) -> Result<bool> {
-        let mut online = false;
+    async fn poll_inverter(&mut self) -> Result<AvailabilityState> {
+        let mut availability = AvailabilityState::Offline;
         if let Some(command) = self.desired.command() {
             match self.inverter.apply(command).await {
-                Ok(()) => online = true,
+                Ok(()) => availability = AvailabilityState::Online,
                 Err(err) => warn!(?err, ?command, "Could not apply desired state to inverter"),
             }
         } else {
             match self.inverter.observed_command().await {
                 Ok(Some(command)) => {
-                    online = true;
-                    if let Err(err) = self.desired.set(command, self.state_file.as_deref()) {
+                    availability = AvailabilityState::Online;
+                    if let Err(err) = self.desired.set(command) {
                         error!(?err, "Could not persist inverter's initial state");
                     } else {
-                        self.mqtt.publish_desired(Some(command)).await?;
+                        self.mqtt.publish_desired(command).await?;
                     }
                 }
-                Ok(None) => online = true,
+                Ok(None) => availability = AvailabilityState::Online,
                 Err(err) => warn!(?err, "Could not read inverter state yet"),
             }
         }
         match self.inverter.read_active_power().await {
             Ok(Some(power)) => {
-                online = true;
+                availability = AvailabilityState::Online;
                 self.mqtt.publish_power(power).await?;
             }
             Ok(None) => {}
             Err(err) => warn!(?err, "Could not read inverter power"),
         }
-        Ok(online)
+        Ok(availability)
     }
 }
